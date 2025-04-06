@@ -1,0 +1,14 @@
+{
+    // Formatting and linting settings
+    "[python]": {
+        "editor.defaultFormatter": "ms-python.black-formatter",
+        "editor.formatOnSave": true,
+        "editor.codeActionsOnSave": {
+            "source.organizeImports": "explicit"
+        }
+    },
+    "flake8.args": ["--config-toml=pyproject.toml"],
+    "black-formatter.args": ["--line-length", "88", "--preview", "--unstable"],
+    "isort.args": ["--profile", "black"],
+    "isort.check": true
+}
