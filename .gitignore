@@ -38,3 +38,7 @@ ENV/
 # Project specific
 .env
 .DS_Store
+
+# Database
+*.db
+*.db-journal
