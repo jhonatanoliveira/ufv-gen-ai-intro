@@ -1,4 +1,4 @@
-# Pipeline de Dados - ETL para Classificação de Notícias da UFV
+# Pipeline de Dados
 
 A capacidade de extrair valor dos dados se tornou fundamental em diversas áreas, especialmente em aplicações envolvendo Inteligência Artificial e aprendizado de máquina. Para que os modelos de Machine Learning consigam entregar resultados satisfatórios, é essencial que sejam alimentados por dados bem estruturados, confiáveis e relevantes. É nesse contexto que surge o conceito de **pipeline de dados**.
 
@@ -19,6 +19,16 @@ Neste módulo, aprofundaremos a etapa inicial do processo ETL, discutindo técni
 ## Extract: Técnicas e Práticas de Extração de Dados
 
 Antes que um modelo de Machine Learning possa realizar qualquer tipo de tarefa, é necessário coletar informações relevantes. A extração eficiente de dados é uma tarefa complexa que demanda técnicas específicas, ferramentas adequadas e conhecimento das limitações legais e éticas envolvidas.
+
+Formas comuns de aquisição de dados incluem:
+* Integração com APIs: Muitas plataformas e serviços oferecem Interfaces de Programação de Aplicações (APIs) que permitem o acesso direto aos seus dados de forma estruturada e segura.
+* Conexão direta a bancos de dados: É possível extrair dados conectando-se diretamente a bancos de dados relacionais ou não relacionais, utilizando linguagens de consulta apropriadas como SQL.
+* Importação de arquivos: Dados podem ser adquiridos por meio da importação de arquivos em diversos formatos, como CSV, Excel, JSON ou XML, que são disponibilizados por sistemas internos ou externos.
+* Streaming de dados: Para aplicações que requerem dados em tempo real, técnicas de streaming permitem a ingestão contínua de informações à medida que são geradas.
+
+Cada método possui suas particularidades e é escolhido conforme as necessidades específicas do projeto e a natureza das fontes de dados disponíveis.
+
+Embora existam diversas técnicas para a obtenção de dados em pipelines ETL, neste material focaremos na extração de dados da web, conhecida como web scraping. Essa abordagem permite coletar informações diretamente de sites, sendo especialmente útil quando os dados não estão disponíveis por meio de APIs ou outros meios estruturados.
 
 ### O que é Web Crawling e Web Scraping?
 
