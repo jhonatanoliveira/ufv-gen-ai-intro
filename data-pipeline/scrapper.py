@@ -1,10 +1,13 @@
-"""Scraper for UFV news portal that extracts latest news articles from the university website."""
+"""Scraper for UFV news portal that extracts latest news articles from the university website,
+respecting robots.txt rules.
+"""
 
 import asyncio
 import logging
 import re
 from datetime import datetime
 from typing import List
+from urllib.robotparser import RobotFileParser
 
 import httpx
 from bs4 import BeautifulSoup, Tag
@@ -13,6 +16,7 @@ from pydantic import BaseModel, ValidationError
 
 BASE_URL = "https://www2.dti.ufv.br/noticias/scripts/"
 NEWS_LIST_URL = BASE_URL + "listaNoticiasMulti.php"
+ROBOTS_URL = "https://www.ufv.br/robots.txt"
 
 
 class NewsItem(BaseModel):
@@ -114,12 +118,10 @@ def parse_news_detail(html: str, code: str) -> NewsItem:
                 and "Linha" in (sibling.get("class") or [])
             ):
                 continue
-            # Append text if present.
             text = sibling.get_text(separator=" ", strip=True)
             if text:
                 content_parts.append(text)
     else:
-        # Fallback: use all text from the container.
         content_parts.append(container.get_text(separator=" ", strip=True))
 
     content = "\n\n".join(content_parts)
@@ -140,15 +142,45 @@ def parse_news_detail(html: str, code: str) -> NewsItem:
         raise
 
 
+async def load_robot_parser(robots_url: str) -> RobotFileParser:
+    """Download and parse the robots.txt file from the given URL."""
+    async with httpx.AsyncClient() as client:
+        response = await client.get(robots_url)
+        response.raise_for_status()
+        content = response.text
+    rp = RobotFileParser()
+    rp.parse(content.splitlines())
+    return rp
+
+
 async def crawl_news() -> List[NewsItem]:
-    """Crawl the news portal to fetch and parse all available news articles."""
+    """Crawl the news portal to fetch and parse all available news articles,
+    considering robots.txt restrictions.
+    """
+    robot_parser = await load_robot_parser(ROBOTS_URL)
+    # Check if crawling the news list page is allowed.
+    if not robot_parser.can_fetch("*", NEWS_LIST_URL):
+        logging.error("Crawling not allowed for NEWS_LIST_URL: %s", NEWS_LIST_URL)
+        return []
+
     async with httpx.AsyncClient() as client:
         list_html = await fetch_html(NEWS_LIST_URL, client)
         news_list = parse_news_list(list_html)
-        tasks = [fetch_html(news.url, client) for news in news_list]
+        tasks = []
+        for news in news_list:
+            # Skip URLs disallowed by robots.txt.
+            if not robot_parser.can_fetch("*", news.url):
+                logging.info("Skipping URL %s due to robots.txt restrictions", news.url)
+                continue
+            tasks.append(fetch_html(news.url, client))
         details_html_list = await asyncio.gather(*tasks, return_exceptions=True)
         results = []
-        for news, detail_html in zip(news_list, details_html_list):
+        # Note: we must match results to news items carefully if some tasks were skipped.
+        # Here we iterate over the tasks that were actually launched.
+        allowed_news = [
+            news for news in news_list if robot_parser.can_fetch("*", news.url)
+        ]
+        for news, detail_html in zip(allowed_news, details_html_list):
             if isinstance(detail_html, Exception):
                 logging.error(
                     "Error fetching news detail for %s: %s", news.url, detail_html
@@ -167,12 +199,10 @@ async def crawl_news() -> List[NewsItem]:
 async def store_news(news_items: List[NewsItem]) -> None:
     """Store the list of scraped news articles in the database using peewee."""
 
-    # Use asyncio.to_thread to run synchronous DB operations in a separate thread.
     def db_operations() -> None:
         db_client.connect(reuse_if_open=True)
         db_client.create_tables([NewsModel], safe=True)
         for item in news_items:
-            # Upsert: if the record exists, replace it.
             NewsModel.insert(
                 code=item.code,
                 category=item.category,
