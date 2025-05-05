@@ -31,4 +31,22 @@ class NewsModel(BaseModel):
         table_name = "scraped_news"
 
 
-__all__ = ["NewsModel", "db_client"]
+class LabeledNewsModel(NewsModel):
+    """Model representing a labeled news article."""
+
+    label = CharField()  # Label for the news article
+
+    class Meta:
+        """Meta configuration for table name."""
+
+        table_name = "labeled_news"
+
+
+class NewsLabel(BaseModel):
+    """Pydantic model for news labels with description"""
+
+    label: str
+    description: str
+
+
+__all__ = ["NewsModel", "LabeledNewsModel", "db_client", "NewsLabel"]
