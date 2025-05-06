@@ -45,3 +45,6 @@ ENV/
 
 # ChromaDB
 **/chroma_db/
+
+# Benchmark output directory
+**/benchmark_output/
