@@ -4,3 +4,4 @@ pydantic==2.11.2
 peewee==3.17.9
 litellm==1.65.6
 pydantic-settings==2.8.1
+chromadb==1.0.8

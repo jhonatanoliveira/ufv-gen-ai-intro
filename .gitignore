@@ -42,3 +42,6 @@ ENV/
 # Database
 *.db
 *.db-journal
+
+# ChromaDB
+**/chroma_db/
