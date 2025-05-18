@@ -15,7 +15,7 @@ class Settings(BaseSettings):
     debug: bool = False
 
     # LLM settings
-    llm_model: str = "openai/gpt-4o-mini"
+    llm_model: str = "openai/gpt-4.1-mini"
     openai_api_key: SecretStr = SecretStr("")
 
 
