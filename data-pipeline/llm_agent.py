@@ -3,6 +3,7 @@
 import argparse
 import asyncio
 import datetime
+import json
 import logging
 import re
 import sys
@@ -10,6 +11,8 @@ from abc import ABC, abstractmethod
 from io import StringIO
 from typing import Sequence
 
+import chromadb
+from chromadb.errors import NotFoundError
 from config import get_settings
 from litellm import acompletion
 from pydantic import BaseModel, Field
@@ -103,6 +106,93 @@ class PythonREPLTool(ToolInterface):
         return self.python_repl.run(code)
 
 
+class VectorNewsSearchTool(ToolInterface):
+    """Semantic search over news articles stored in ChromaDB."""
+
+    name: str = "News Search"
+    description: str = (
+        "Perform a semantic search in the news articles. "
+        "Input must be JSON with keys:\n"
+        "  • query (str) – the search string;\n"
+        "  • n_results (int, optional, default=5);\n"
+        "  • filters (dict, optional) – metadata filters. Supported fields are:\n"
+        "      • code (str): unique document ID\n"
+        "      • category (str): news category\n"
+        "      • title (str): article title\n"
+        "      • date (str): publication date\n"
+        "      • location (str): geographic location\n"
+        "      • label (str): classification label\n"
+        "      • embedded_at (str): embedding timestamp\n"
+        "Returns a JSON array of {{id, document, metadata, distance}} hits."
+    )
+
+    # by default match your embedding code
+    collection_name: str = Field(
+        default_factory=lambda: getattr(
+            settings, "chroma_collection_name", "news_articles"
+        )
+    )
+    persist_directory: str = Field(
+        default_factory=lambda: getattr(
+            settings, "chroma_persist_directory", "chroma_db"
+        )
+    )
+
+    def use(self, input_text: str) -> str:
+        # 1) parse input
+        try:
+            params = json.loads(input_text)
+            query = params["query"]
+            n_results = int(params.get("n_results", 5))
+            filters = params.get("filters", {}) or None
+        except (json.JSONDecodeError, KeyError, TypeError):
+            # fallback: treat entire input as the query
+            query = input_text.strip()
+            n_results = 5
+            filters = None
+
+        # 2) connect to ChromaDB
+        client = chromadb.PersistentClient(path=self.persist_directory)
+        try:
+            coll = client.get_collection(name=self.collection_name)
+        except NotFoundError:
+            return json.dumps(
+                {"error": f"Collection '{self.collection_name}' not found."},
+                indent=2,
+            )
+
+        # 3) perform the query
+        results = coll.query(
+            query_texts=[query],
+            n_results=n_results,
+            where=filters,
+            include=["documents", "metadatas", "distances"],
+        )
+
+        # 4) flatten and format
+        ids = results.get("ids", [[]])
+        docs = results.get("documents", [[]])
+        metas = results.get("metadatas", [[]])
+        dists = results.get("distances", [[]])
+
+        # Extract first items or use empty defaults
+        ids = ids[0] if ids and len(ids) > 0 else []
+        docs = docs[0] if docs and len(docs) > 0 else []
+        metas = metas[0] if metas and len(metas) > 0 else []
+        dists = dists[0] if dists and len(dists) > 0 else []
+
+        output = []
+        for i, doc in enumerate(docs):
+            output.append({
+                "id": ids[i] if i < len(ids) else None,
+                "document": doc,
+                "metadata": metas[i] if i < len(metas) else {},
+                "distance": dists[i] if i < len(dists) else None,
+            })
+
+        return json.dumps(output, indent=2)
+
+
 class ChatLLM(BaseModel):
     """Client for communicating with LLM API."""
 
@@ -191,15 +281,24 @@ class Agent(BaseModel):
 
     def parse_response(self, generated: str) -> tuple[str, str]:
         """Extract tool name and input from generated text."""
+        # Check for explicit Final Answer
         if FINAL_ANSWER_TOKEN in generated:
             return "Final Answer", generated.split(FINAL_ANSWER_TOKEN, 1)[1].strip()
+
+        # Look for Action/Action Input format
         pattern = r"Action: [\[]?(.*?)[\]]?[\n]*Action Input:[\s]*(.*)"
         match = re.search(pattern, generated, re.DOTALL)
-        if not match:
-            logging.error("Unable to parse LLM output: %s", generated)
-            raise ValueError(f"Could not parse action from LLM output:\n{generated}")
-        tool, inp = match.group(1).strip(), match.group(2).strip().strip('"')
-        return tool, inp
+        if match:
+            tool, inp = match.group(1).strip(), match.group(2).strip().strip('"')
+            return tool, inp
+
+        # If the model directly generates an answer without following the format,
+        # treat it as a final answer
+        logging.warning(
+            "LLM generated direct response without using tools: %s",
+            generated[:100] + "..." if len(generated) > 100 else generated,
+        )
+        return "Final Answer", generated.strip()
 
 
 async def main():
@@ -209,13 +308,25 @@ async def main():
     )
     parser = argparse.ArgumentParser(description="Run the async LLM agent")
     parser.add_argument("query", help="The question or prompt to send to the agent")
+    parser.add_argument(
+        "--debug",
+        "-d",
+        action="store_true",
+        help="Show detailed logs of what the agent is doing",
+    )
     args = parser.parse_args()
 
+    logging.basicConfig(
+        level=logging.INFO if args.debug else logging.CRITICAL,
+        format="%(asctime)s %(levelname)s %(message)s",
+        force=True,
+    )
+
     llm = ChatLLM()
-    tools = [PythonREPLTool()]
+    tools = [PythonREPLTool(), VectorNewsSearchTool()]
     agent = Agent(llm=llm, tools=tools)
     answer = await agent.run(args.query)
-    print(f"\nFinal answer: {answer}")
+    print(f"\nFinal answer:\n{answer}")
 
 
 if __name__ == "__main__":
